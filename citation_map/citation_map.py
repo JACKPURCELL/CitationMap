@@ -9,6 +9,9 @@ import pycountry
 import re
 import random
 import time
+from openai import OpenAI
+import json
+client = OpenAI()
 
 from geopy.geocoders import Nominatim
 from multiprocessing import Pool
@@ -122,7 +125,122 @@ def clean_affiliation_names(author_paper_affiliation_tuple_list: List[Tuple[str]
                 cleaned_author_paper_affiliation_tuple_list.append((author_name, citing_paper_title, cited_paper_title, cleaned_affiliation))
     return cleaned_author_paper_affiliation_tuple_list
 
-def affiliation_text_to_geocode(author_paper_affiliation_tuple_list: List[Tuple[str]], max_attempts: int = 3) -> List[Tuple[str]]:
+# def get_institution_address(affiliation_map):
+#     # Replace 'YOUR_API_KEY' with your actual OpenAI API key
+    
+#     # prompt = f"Please find the address of the institute '{institution_name}' and return it in the following JSON format: county, city, state, country, latitude, longitude (use + or - for coordinates). Most institutions are research universities or research institutes, some of them are technology companies. If the institution is not found, please return None JSON."
+    
+#     completion = client.chat.completions.create(
+#                         model="gpt-4o-mini",
+#                         response_format={"type": "json_object"},
+#                         messages=[
+#                             {"role": "system", "content": "Please find the address of each of the institute and return it in the following JSON format: institute_name, institute_full_address, county, city, state, country, latitude, longitude (use + or - for coordinates). Most institutions are research universities or research institutes, some of them are technology companies. If the institution is not found, please return None."},
+#                             {"role": "user", "content": f"{affiliation_map}"}
+#                         ]
+#                         )
+
+    
+#     # Extract the JSON response
+#     address_json = completion.choices[0].message.content
+#     address_json = json.loads(address_json)
+#     return address_json
+
+def get_institution_address(affiliation_map):
+    # Function to query the API for a batch of affiliations
+    def query_batch(batch):
+        system_message = {
+            "role": "system",
+            "content": (
+                "Please find the address of each institute listed in the 'affiliation_map' and return it in the following JSON format where the key is the affiliation and value is the address details:\n"
+                "{\n"
+                "  'affiliation': {\n"
+                "    'institute_name': 'string',\n"
+                "    'institute_full_address': 'string',\n"
+                "    'county': 'string',\n"
+                "    'city': 'string',\n"
+                "    'state': 'string',\n"
+                "    'country': 'string',\n"
+                "    'latitude': 'float',\n"
+                "    'longitude': 'float'\n"
+                "  }\n"
+                "}\n"
+                "If the institution is not found, please return None for that affiliation."
+            )
+        }
+
+        user_message = {
+            "role": "user",
+            "content": str(batch)
+        }
+
+        # Make the API call
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            response_format={"type": "json_object"},
+            
+            messages=[system_message, user_message]
+        )
+
+        address_json = completion.choices[0].message.content
+        address_json = json.loads(address_json)
+        return address_json
+
+    # Initialize the result dictionary
+    result = {}
+
+    # Process the affiliation_map in batches of 20
+    for i in tqdm(0, len(affiliation_map), 20):
+        batch = affiliation_map[i:i + 20]
+
+        # Query the batch and update the result dictionary
+        batch_result = query_batch(batch)
+        result.update(batch_result)
+
+    return result
+
+def get_institution_address(affiliation_map):
+    # Replace 'YOUR_API_KEY' with your actual OpenAI API key
+    
+    # Construct the prompt
+    system_message = {
+        "role": "system",
+        "content": (
+            "Please find the address of each institute listed in the 'affiliation_map' and return it in the following JSON format where the key is the affiliation and value is the address details:\n"
+            "{\n"
+            "  'affiliation': {\n"
+            "    'institute_name': 'string',\n"
+            "    'institute_full_address': 'string',\n"
+            "    'county': 'string',\n"
+            "    'city': 'string',\n"
+            "    'state': 'string',\n"
+            "    'country': 'string',\n"
+            "    'latitude': 'float',\n"
+            "    'longitude': 'float'\n"
+            "  }\n"
+            "}\n"
+            "If the institution is not found, please return None for that affiliation."
+        )
+    }
+
+    user_message = {
+        "role": "user",
+        "content": str(affiliation_map)
+    }
+    print(str(affiliation_map))
+    # Make the API call
+    completion = client.chat.completions.create(
+        model="gpt-4o-mini",
+        response_format={"type": "json_object"},
+        
+        messages=[system_message, user_message]
+    )
+    print(completion)
+    # Extract the JSON response
+    address_json = completion.choices[0].message.content
+    address_json = json.loads(address_json)
+    return address_json
+
+def affiliation_text_to_geocode(author_paper_affiliation_tuple_list: List[Tuple[str]], max_attempts: int = 3, use_openai=False) -> List[Tuple[str]]:
     '''
     Step 4: Convert affiliations in plain text to Geocode.
     '''
@@ -142,40 +260,66 @@ def affiliation_text_to_geocode(author_paper_affiliation_tuple_list: List[Tuple[
 
     num_total_affiliations = len(affiliation_map)
     num_located_affiliations = 0
+    
+    if use_openai:
+        openai_locations = get_institution_address(list(affiliation_map.keys()))
+    
     for affiliation_name in tqdm(affiliation_map,
                                  desc='Finding geographic coordinates from %d unique citing affiliations in %d entries' % (
                                      len(affiliation_map), len(author_paper_affiliation_tuple_list)),
                                  total=len(affiliation_map)):
-        for _ in range(max_attempts):
-            try:
-                geo_location = geolocator.geocode(affiliation_name)
-                if geo_location:
-                    # Get the full location metadata that includes county, city, state, country, etc.
-                    location_metadata = geolocator.reverse(str(geo_location.latitude) + ',' + str(geo_location.longitude), language='en')
-                    address = location_metadata.raw['address']
-                    county, city, state, country = None, None, None, None
-                    if 'county' in address:
-                        county = address['county']
-                    if 'city' in address:
-                        city = address['city']
-                    if 'state' in address:
-                        state = address['state']
-                    if 'country' in address:
-                        country = address['country']
+        if use_openai:
+            openai_location = openai_locations[affiliation_name]
+            if openai_location is not None:
+                county = openai_location['county']
+                city = openai_location['city']
+                state = openai_location['state']
+                country = openai_location['country']
+                latitude = openai_location['latitude']
+                longitude = openai_location['longitude']
+                        
+                corresponding_entries = affiliation_map[affiliation_name]
+                for entry_idx in corresponding_entries:
+                    author_name, citing_paper_title, cited_paper_title, affiliation_name = author_paper_affiliation_tuple_list[entry_idx]
+                    coordinates_and_info.append((author_name, citing_paper_title, cited_paper_title, affiliation_name,
+                                                latitude, longitude,
+                                                county, city, state, country))
+                # This location is successfully recorded.
+                num_located_affiliations += 1
+            else:
+                print(f'Failed to find the location of {affiliation_name}.')
+        else:        
+            for _ in range(max_attempts):
+                try:
+                    geo_location = geolocator.geocode(affiliation_name)
+                    if geo_location:
+                        # Get the full location metadata that includes county, city, state, country, etc.
+                        location_metadata = geolocator.reverse(str(geo_location.latitude) + ',' + str(geo_location.longitude), language='en')
+                        address = location_metadata.raw['address']
+                        county, city, state, country = None, None, None, None
+                        if 'county' in address:
+                            county = address['county']
+                        if 'city' in address:
+                            city = address['city']
+                        if 'state' in address:
+                            state = address['state']
+                        if 'country' in address:
+                            country = address['country']
 
-                    corresponding_entries = affiliation_map[affiliation_name]
-                    for entry_idx in corresponding_entries:
-                        author_name, citing_paper_title, cited_paper_title, affiliation_name = author_paper_affiliation_tuple_list[entry_idx]
-                        coordinates_and_info.append((author_name, citing_paper_title, cited_paper_title, affiliation_name,
-                                                     geo_location.latitude, geo_location.longitude,
-                                                     county, city, state, country))
-                    # This location is successfully recorded.
-                    num_located_affiliations += 1
-                    break
-            except:
-                continue
+                        corresponding_entries = affiliation_map[affiliation_name]
+                        for entry_idx in corresponding_entries:
+                            author_name, citing_paper_title, cited_paper_title, affiliation_name = author_paper_affiliation_tuple_list[entry_idx]
+                            coordinates_and_info.append((author_name, citing_paper_title, cited_paper_title, affiliation_name,
+                                                        geo_location.latitude, geo_location.longitude,
+                                                        county, city, state, country))
+                        # This location is successfully recorded.
+                        num_located_affiliations += 1
+                        break
+                except:
+                    continue
     print('\nConverted %d/%d affiliations to Geocodes.' % (num_located_affiliations, num_total_affiliations))
     coordinates_and_info = [item for item in coordinates_and_info if item is not None]  # Filter out empty entries.
+    coordinates_and_info = [item for item in coordinates_and_info if item[4] is not None]  # Filter out empty entries.
     return coordinates_and_info
 
 def create_map(coordinates_and_info: List[Tuple[str]], pin_colorful: bool = True):
@@ -334,7 +478,8 @@ def generate_citation_map(scholar_id: str,
                           num_processes: int = 16,
                           use_proxy: bool = False,
                           pin_colorful: bool = True,
-                          print_citing_affiliations: bool = True):
+                          print_citing_affiliations: bool = True,
+                          use_openai: bool = False):
     '''
     Google Scholar Citation World Map.
 
@@ -434,7 +579,7 @@ def generate_citation_map(scholar_id: str,
         author_paper_affiliation_tuple_list = list(set(author_paper_affiliation_tuple_list))
 
     # NOTE: Step 4. Convert affiliations in plain text to Geocode.
-    coordinates_and_info = affiliation_text_to_geocode(author_paper_affiliation_tuple_list)
+    coordinates_and_info = affiliation_text_to_geocode(author_paper_affiliation_tuple_list, use_openai=True)
     # Take unique tuples.
     coordinates_and_info = list(set(coordinates_and_info))
 
@@ -451,7 +596,7 @@ def generate_citation_map(scholar_id: str,
 
 if __name__ == '__main__':
     # Replace this with your Google Scholar ID.
-    scholar_id = '3rDjnykAAAAJ'
+    scholar_id = 'Qsp7ts0AAAAJ'
     generate_citation_map(scholar_id, output_path='citation_map.html', csv_output_path='citation_info.csv',
                           cache_folder='cache', affiliation_conservative=True, num_processes=16,
                           use_proxy=False, pin_colorful=True, print_citing_affiliations=True)
