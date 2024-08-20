@@ -198,47 +198,47 @@ def get_institution_address(affiliation_map):
 
     return result
 
-def get_institution_address(affiliation_map):
-    # Replace 'YOUR_API_KEY' with your actual OpenAI API key
+# def get_institution_address(affiliation_map):
+#     # Replace 'YOUR_API_KEY' with your actual OpenAI API key
     
-    # Construct the prompt
-    system_message = {
-        "role": "system",
-        "content": (
-            "Please find the address of each institute listed in the 'affiliation_map' and return it in the following JSON format where the key is the affiliation and value is the address details:\n"
-            "{\n"
-            "  'affiliation': {\n"
-            "    'institute_name': 'string',\n"
-            "    'institute_full_address': 'string',\n"
-            "    'county': 'string',\n"
-            "    'city': 'string',\n"
-            "    'state': 'string',\n"
-            "    'country': 'string',\n"
-            "    'latitude': 'float',\n"
-            "    'longitude': 'float'\n"
-            "  }\n"
-            "}\n"
-            "If the institution is not found, please return None for that affiliation."
-        )
-    }
+#     # Construct the prompt
+#     system_message = {
+#         "role": "system",
+#         "content": (
+#             "Please find the address of each institute listed in the 'affiliation_map' and return it in the following JSON format where the key is the affiliation and value is the address details:\n"
+#             "{\n"
+#             "  'affiliation': {\n"
+#             "    'institute_name': 'string',\n"
+#             "    'institute_full_address': 'string',\n"
+#             "    'county': 'string',\n"
+#             "    'city': 'string',\n"
+#             "    'state': 'string',\n"
+#             "    'country': 'string',\n"
+#             "    'latitude': 'float',\n"
+#             "    'longitude': 'float'\n"
+#             "  }\n"
+#             "}\n"
+#             "If the institution is not found, please return None for that affiliation."
+#         )
+#     }
 
-    user_message = {
-        "role": "user",
-        "content": str(affiliation_map)
-    }
-    print(str(affiliation_map))
-    # Make the API call
-    completion = client.chat.completions.create(
-        model="gpt-4o-mini",
-        response_format={"type": "json_object"},
+#     user_message = {
+#         "role": "user",
+#         "content": str(affiliation_map)
+#     }
+#     print(str(affiliation_map))
+#     # Make the API call
+#     completion = client.chat.completions.create(
+#         model="gpt-4o-mini",
+#         response_format={"type": "json_object"},
         
-        messages=[system_message, user_message]
-    )
-    print(completion)
-    # Extract the JSON response
-    address_json = completion.choices[0].message.content
-    address_json = json.loads(address_json)
-    return address_json
+#         messages=[system_message, user_message]
+#     )
+#     print(completion)
+#     # Extract the JSON response
+#     address_json = completion.choices[0].message.content
+#     address_json = json.loads(address_json)
+#     return address_json
 
 def affiliation_text_to_geocode(author_paper_affiliation_tuple_list: List[Tuple[str]], max_attempts: int = 3, use_openai=False) -> List[Tuple[str]]:
     '''
@@ -579,7 +579,7 @@ def generate_citation_map(scholar_id: str,
         author_paper_affiliation_tuple_list = list(set(author_paper_affiliation_tuple_list))
 
     # NOTE: Step 4. Convert affiliations in plain text to Geocode.
-    coordinates_and_info = affiliation_text_to_geocode(author_paper_affiliation_tuple_list, use_openai=True)
+    coordinates_and_info = affiliation_text_to_geocode(author_paper_affiliation_tuple_list, use_openai=use_openai)
     # Take unique tuples.
     coordinates_and_info = list(set(coordinates_and_info))
 
